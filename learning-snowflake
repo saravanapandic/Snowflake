@@ -1,0 +1,19 @@
+--create table on currentdate base ex:NSE_20230920----------------------------------------------------
+CREATE OR REPLACE PROCEDURE CREATETABLE_dynamic_Name ()
+RETURNS VARCHAR(255)
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+SQL VARCHAR(255);
+CURRENTDATETIME VARCHAR(14); 
+tables varchar;
+BEGIN
+CURRENTDATETIME := TO_VARCHAR(CURRENT_TIMESTAMP(), 'YYYYMMDD');
+tables:='NSE_'||:CURRENTDATETIME;
+SQL := 'CREATE OR REPLACE TABLE Demo.procedure.'||:tables || CHAR(10) || '(ID INT,name varchar(255));';
+EXECUTE IMMEDIATE : SQL;
+RETURN tables;
+END;
+$$;
