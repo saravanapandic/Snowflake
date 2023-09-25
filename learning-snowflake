@@ -17,3 +17,61 @@ EXECUTE IMMEDIATE : SQL;
 RETURN tables;
 END;
 $$;
+--alter warhouse size---------------------------------------------------------------------------------------------
+ALTER WAREHOUSE COMPUTE_WH SET warehouse_size=xsmall;
+----------------------------------------------------------------------------------------
+select * from WORLDWIDE_ADDRESS_DATA.ADDRESS.OPENADDRESS order by id desc limit 100;
+--pass arguments in store procedure-------------------------------------------------------------------------------
+create or replace PROCEDURE Details_purchase_street(street varchar)
+RETURNS table() null
+LANGUAGE SQL
+RETURNS NULL ON NULL INPUT
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+  res RESULTSET;
+BEGIN
+  res:= (SELECT * FROM DEMO.PROCEDURE.WORLDWIDES WHERE STREET=:street);
+  RETURN TABLE(res);
+END;
+$$;
+--
+call Details('WOODRIDGE DR');
+CALL Details('First Street');
+select * from DEMO.PROCEDURE.WORLDWIDES where STREET=('WOODRIDGE DR');
+--DROP PROCEDURE DEMO.PROCEDURE.DETAILS();
+create table DEMO.PROCEDURE.worldwides as (select * from WORLDWIDE_ADDRESS_DATA.ADDRESS.OPENADDRESS);
+
+
+--------------------------------
+EXECUTE IMMEDIATE $stmt;
+
+set stmt=
+$$
+SELECT * FROM DEMO.PROCEDURE.WORLDWIDES WHERE LAT =41.0775351;
+$$;
+
+SELECT * FROM DEMO.PROCEDURE.WORLDWIDES WHERE LAT ='||:id ||'limit 1';
+-----------------------------------------
+
+
+---------------------------------------
+CREATE OR REPLACE FUNCTION add5 (n NUMBER)
+  RETURNS NUMBER
+  AS 'n + 5';
+
+CREATE OR REPLACE FUNCTION add5 (s VARCHAR)
+  RETURNS VARCHAR
+  AS
+  $$
+    s || '5'
+  $$;
+
+  SELECT add5(1);
+  SELECT add5('1');
+-----------------------------------------
+
+
+
+
