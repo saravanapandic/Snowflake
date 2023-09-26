@@ -1,0 +1,47 @@
+
+CREATE OR REPLACE TABLE customer_name (id INTEGER AUTOINCREMENT START 1 increment 1 , Name varchar(255));
+select * from customer_name;
+INSERT INTO invoices ( price) VALUES
+  ( 11.11),
+  ( 22.22);
+
+----------------------------------------
+
+
+--random name generate------------------------- 
+CREATE OR REPLACE FUNCTION get_UserName_random ()
+  RETURNS varchar()
+  AS 
+  'SELECT randstr(5, random())';
+-----------------------------------------------
+
+create or replace PROCEDURE UserName_Insert_withRandom(m varchar(255))
+RETURNS varchar null
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE
+  a varchar(255);
+BEGIN
+  a := m;
+  INSERT INTO  DEMO.PROCEDURE.CUSTOMER_NAME(Name) VALUES(:a);
+END;
+$$;
+
+--task to generate name every 1 minutes ---------------------------
+
+
+create or replace task auto_generate_dataset_CustomerName
+  warehouse = COMPUTE_WH
+  schedule = '1 MINUTE'
+    as
+     call UserName_Insert_withRandom(select get_UserName_random ());
+------------------ 
+
+--resume the task----------------------------
+ALTER TASK auto_generate_dataset_CustomerName RESUME;
+---------------------------------
+DESC TASK auto_generate_dataset_CustomerName;
+
+--SELECT randstr(5, random()) FROM table(generator(rowCount => 10));
