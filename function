@@ -45,3 +45,25 @@ ALTER TASK auto_generate_dataset_CustomerName RESUME;
 DESC TASK auto_generate_dataset_CustomerName;
 
 --SELECT randstr(5, random()) FROM table(generator(rowCount => 10));
+
+--------------------------------------------------------------------------------------------------------------------
+--create function to generate age 
+CREATE OR REPLACE FUNCTION generate_random_age()
+    RETURNS VARIANT
+      LANGUAGE PYTHON
+      RUNTIME_VERSION = '3.8'
+      PACKAGES = ('numpy','pandas','xgboost==1.5.0','uuid')
+      HANDLER = 'udf' 
+  AS 
+  $$
+  import random
+
+    # Generate a random age between 18 and 99
+    random_age = random.randint(18, 99)
+
+    print("Random age:", random_age)
+    $$;
+
+
+SELECT * FROM INFORMATION_SCHEMA.PACKAGES WHERE LANGUAGE = 'python' ;
+----------------------------------------------------------------------------------------------------------------------------
