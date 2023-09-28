@@ -1,0 +1,39 @@
+--create email notification
+CREATE OR REPLACE NOTIFICATION INTEGRATION email_notification_integration 
+    TYPE=EMAIL
+    ENABLED=TRUE
+    ALLOWED_RECIPIENTS=('saravanapandi.c@elait.com');
+------
+create or replace procedure database_name_notify()
+RETURNS varchar()
+LANGUAGE SQL
+EXECUTE AS OWNER
+as
+declare
+    b resultset default (select to_varchar(sum(credits_used)) as credits_used ,warehouse_name,to_varchar(sum(credits_used_compute)) as credits_used_compute,to_varchar(sum(credits_used_cloud_services))as credits_used_cloud_services  from   SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY group by warehouse_name );
+    join_string varchar default ' ';
+    cur cursor for b;
+begin
+    FOR row_variable IN cur DO
+    join_string := join_string ||'WAREHOUSE_NAME='||row_variable.WAREHOUSE_NAME ||', ' ||'Total CREDITS_USED='||row_variable.credits_used||', '||'Total CREDITS_USED_COMPUTE='||row_variable.CREDITS_USED_COMPUTE||', '|| 'Total CREDITS_USED_CLOUD_SERVICES= '||row_variable.CREDITS_USED_CLOUD_SERVICES|| '\n\n';
+    END FOR;
+      CALL SYSTEM$SEND_EMAIL('email_notification_integration','saravanapandi.c@elait.com','Warhouse cost consumption Details' ,:join_string);
+    return join_string;
+end;
+
+call database_name_notify();
+
+
+select * from SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY;
+  CALL SYSTEM$SEND_EMAIL('email_notification_integration','saravanapandi.c@elait.com','Database List',:b);
+
+--------------------------------------------------------------------------------------------------------------
+create table m as (show warehouses);
+
+
+select OBJECT_CONSTRUCT('name',WAREHOUSE_NAME) from SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY; 
+
+
+select * from SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY; 
+
+SELECT * FROM snowflake.account_usage.warehouse_events_history order by TIMESTAMP desc;
