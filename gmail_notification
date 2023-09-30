@@ -37,3 +37,172 @@ select OBJECT_CONSTRUCT('name',WAREHOUSE_NAME) from SNOWFLAKE.ACCOUNT_USAGE.WARE
 select * from SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY; 
 
 SELECT * FROM snowflake.account_usage.warehouse_events_history order by TIMESTAMP desc;
+
+
+
+
+
+--create table to store data for event log
+create or replace table warehouse_Credits_Details_table (WAREHOUSE_ID varchar,WAREHOUSE_NAME varchar,Total_CREDITS_USED varchar,Stage_level varchar ,Time varchar);
+
+
+--create stream 
+create or replace stream warehouse_threshold_stream on table warehouse_Credits_Details_table;
+
+
+
+--create procedure for get warhouse reach level----
+/* it will connect to task will running for every one minute */
+create or replace procedure warehouse_threshold_limitReached()
+RETURNS varchar()
+LANGUAGE SQL
+EXECUTE AS OWNER
+as
+declare
+    warehouse_details resultset default (select WAREHOUSE_ID,WAREHOUSE_NAME,sum(CREDITS_USED) as total_credit,sum(CREDITS_USED_COMPUTE),sum(CREDITS_USED_CLOUD_SERVICES) from SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY group by warehouse_name,warehouse_id);           --get warhosue details from metedata(snowflake-account)
+     cur cursor for warehouse_details;
+     a varchar default 1;
+     second_level varchar;
+     W_ID varchar;
+     W_N varchar;
+     WAREHOUSE_ID varchar;
+     CREDITS_USED varchar;
+begin 
+    FOR row_variable IN cur DO     --cursor for snowflake warhouse details
+    begin
+            W_ID:=to_varchar(row_variable.WAREHOUSE_ID);
+            W_N:=row_variable.WAREHOUSE_NAME;
+            WAREHOUSE_ID:=to_varchar(row_variable.WAREHOUSE_ID);
+            CREDITS_USED:=to_varchar(row_variable.TOTAL_CREDIT);
+        if(row_variable.TOTAL_CREDIT >15 and row_variable.TOTAL_CREDIT <20)then    --first level triggers if cost reach 15$
+        begin
+            --message should send one time only if reached one level for first time  
+            if(not exists(select 1 from DEMO.PROCEDURE.WAREHOUSE_CREDITS_DETAILS_TABLE where WAREHOUSE_NAME= :W_N  and Stage_level='level_1'))then  --checking if 15$ reached already and it should not send message
+        insert into warehouse_Credits_Details_table(WAREHOUSE_ID,WAREHOUSE_NAME,Total_CREDITS_USED,Stage_level,Time)values(:W_ID,:W_N,:CREDITS_USED,'level_1',CURRENT_TIMESTAMP(1)::varchar);
+            --return '15 and 31';
+            end if;
+        end;
+       elseif(row_variable.TOTAL_CREDIT>30 and row_variable.TOTAL_CREDIT<35)then  --level 2 for 30$ to 50$
+       begin
+        if(not exists(select 1 from DEMO.PROCEDURE.WAREHOUSE_CREDITS_DETAILS_TABLE where WAREHOUSE_NAME= :W_N  and         Stage_level='level_2')) THEN
+       insert into warehouse_Credits_Details_table(WAREHOUSE_ID,WAREHOUSE_NAME,Total_CREDITS_USED,Stage_level,Time)values(:W_ID,:W_N,:CREDITS_USED,'level_2',CURRENT_TIMESTAMP(1)::varchar);
+       --return '31 and 50';
+       end if;
+       end;
+       elseif(row_variable.TOTAL_CREDIT>51 and row_variable.TOTAL_CREDIT<55)then  --level 3 for 51 to 55
+       begin 
+         if(not exists(select 1 from DEMO.PROCEDURE.WAREHOUSE_CREDITS_DETAILS_TABLE where WAREHOUSE_NAME= :W_N  and         Stage_level='level_3')) THEN
+          insert into     warehouse_Credits_Details_table(WAREHOUSE_ID,WAREHOUSE_NAME,Total_CREDITS_USED,Stage_level,Time)values(:W_ID,:W_N,:CREDITS_USED,'level_2',CURRENT_TIMESTAMP(1)::varchar);
+        end if;
+        end;
+        end if;
+    end;
+    END FOR;
+end;
+
+
+call warehouse_threshold_limitReached();
+
+select * from warehouse_Credits_Details_table ;
+select * from warehouse_threshold_stream;
+--------create task 
+CREATE or replace TASK check_warehouse_costLimit
+  WAREHOUSE = COMPUTE_WH
+  SCHEDULE = '1 minute'
+  AS
+  call warehouse_threshold_limitReached();
+----
+ALTER TASK t1 RESUME;
+show tasks;
+-----
+CALL SYSTEM$SEND_EMAIL('email_notification_integration','saravanapandi.c@elait.com','Warhouse cost consumption Details' , OBJECT_CONSTRUCT('warehouse_name',warehouse_name) from warehouse_Credits_Details_table);
+
+
+
+
+
+
+
+
+-------------------------------------------------------
+
+create table event_log(event_id int autoincrement start 1, event_object varchar,event_type varchar,event_time timestamp_tz);
+insert into event_log values(1,'successful insert','checking topic',current_timestamp);
+select * from event_log;
+
+CREATE or replace ALERT Alert_Event_log
+  WAREHOUSE = COMPUTE_WH
+  SCHEDULE = '1 MINUTE'
+  IF (EXISTS (
+    SELECT * FROM event_log WHERE event_time BETWEEN 
+            IFNULL(SNOWFLAKE.ALERT.LAST_SUCCESSFUL_SCHEDULED_TIME(),
+            '1900-01-01'::TIMESTAMP_NTZ) AND SNOWFLAKE.ALERT.SCHEDULED_TIME()
+    ))
+  THEN
+    BEGIN
+     declare 
+     table_row resultset default (SELECT event_object,event_type FROM event_log WHERE event_time BETWEEN 
+            IFNULL(SNOWFLAKE.ALERT.LAST_SUCCESSFUL_SCHEDULED_TIME(),
+            '1900-01-01'::TIMESTAMP_NTZ) AND SNOWFLAKE.ALERT.SCHEDULED_TIME()
+    );
+        cur cursor for table_row;
+        a varchar;
+        b varchar;
+        begin 
+            FOR row_variable IN cur DO
+                set a:=row_variable.event_type ;
+                set b:=row_variable.event_object;
+                CALL SYSTEM$SEND_EMAIL('email_notification_integration','saravanapandi.c@elait.com',:a,:b);
+            END FOR;
+        end;
+    END;
+ALTER ALERT Alert_Event_log RESUME;
+SHOW ALERTS;
+
+---------------------------------------------------------2
+CREATE or replace ALERT Alert_Event_log
+  WAREHOUSE = COMPUTE_WH
+  SCHEDULE = '1 MINUTE'
+  IF (EXISTS (
+    SELECT * FROM event_log WHERE event_time BETWEEN 
+            IFNULL(SNOWFLAKE.ALERT.LAST_SUCCESSFUL_SCHEDULED_TIME(),
+            '1900-01-01'::TIMESTAMP_NTZ) AND SNOWFLAKE.ALERT.SCHEDULED_TIME()
+    ))
+  THEN
+            insert into ss values(1);
+
+            
+            
+create table ss(one int);
+select * from ss;
+GRANT DATABASE ROLE snowflake.alert_viewer TO ROLE ACCOUNTADMIN;
+select * from SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY;
+
+-------------------------------------------------------------------------------------------
+declare 
+     table_row resultset default (SELECT event_object,event_type FROM event_log);
+        cur cursor for table_row;
+        a int default 0;
+        b varchar;
+        begin 
+            FOR row_variable IN cur DO
+                set a:=row_variable.event_type ;
+                set b:=row_variable.event_object;
+                CALL SYSTEM$SEND_EMAIL('email_notification_integration','saravanapandi.c@elait.com',:a,:b);
+                a=a+1;
+            END FOR;
+            return a;
+        end;
+
+
+SELECT *
+FROM
+  TABLE(INFORMATION_SCHEMA.ALERT_HISTORY(
+    SCHEDULED_TIME_RANGE_START
+      =>dateadd('hour',-1,current_timestamp())))
+ORDER BY SCHEDULED_TIME DESC;
+
+
+
+SELECT *
+     FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY;
