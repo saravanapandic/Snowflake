@@ -1,0 +1,154 @@
+--create table for event log 
+create or replace table event_log(event_id int autoincrement increment 1, event_details varchar,event_type varchar,event_time timestamp_tz,WAREHOUSE_NAME varchar,event_message variant);
+
+--create alert for snowflake account to event log
+CREATE or replace ALERT warehouse_threshould_limit_checking
+  WAREHOUSE = OPERATING_CHECK
+  SCHEDULE = '1 MINUTE'
+  IF (EXISTS(select WAREHOUSE_NAME,sum(CREDITS_USED) as total_credit,sum(CREDITS_USED_COMPUTE),sum(CREDITS_USED_CLOUD_SERVICES) from table(information_schema.warehouse_metering_history(dateadd(month,-5,current_date))) group by warehouse_name having WAREHOUSE_NAME <> 'OPERATING_CHECK' and total_credit>33 ))
+  then
+  declare
+    warehouse_details resultset default (select WAREHOUSE_NAME,sum(CREDITS_USED) as total_credit,sum(CREDITS_USED_COMPUTE),sum(CREDITS_USED_CLOUD_SERVICES) from table(information_schema.warehouse_metering_history(dateadd(month,-5,current_date))) group by warehouse_name having WAREHOUSE_NAME <> 'OPERATING_CHECK' );           --get warhosue details from metedata(snowflake-account)
+     cursor_warehouse_details cursor for warehouse_details;
+     WAREHOUSE_NAME varchar;
+     CREDITS_USED varchar;
+     join_details varchar;
+begin    
+    FOR row_variable IN cursor_warehouse_details DO     --cursor for snowflake warhouse details
+    begin
+            WAREHOUSE_NAME:=row_variable.WAREHOUSE_NAME;
+            CREDITS_USED:=to_varchar(row_variable.TOTAL_CREDIT);
+            join_details :='WAREHOUSE NAME: '||:WAREHOUSE_NAME||'\n'||','||'TOTAl credit used: '||:CREDITS_USED  ||' TIME:'||current_timestamp(1);
+        if(row_variable.TOTAL_CREDIT >33 and row_variable.TOTAL_CREDIT <55)then  --if condition will triggers if cost reach 50$
+        begin
+            --message should send one time only if reached one level for first time  
+            if(not exists(select 1 from WAREHOUSE_LIMITED_CHECK.THRESHOLD_LIMITREACHED_CHECKING.EVENT_LOG where WAREHOUSE_NAME= :WAREHOUSE_NAME  ))then  --checking if 50$ reached already and it should not send message
+        insert into WAREHOUSE_LIMITED_CHECK.THRESHOLD_LIMITREACHED_CHECKING.EVENT_LOG(event_type,event_time,WAREHOUSE_NAME,event_object)
+        select 
+        'Warehouse Costs Exceeding $100',
+        current_timestamp,
+        :WAREHOUSE_NAME,
+        object_construct(
+        'WAREHOUSE NAME',warehouse_name,
+        'Total credit',sum(CREDITS_USED),
+        'Total credit on compute',SUM(CREDITS_USED_COMPUTE),
+        'Total credit on cloud service',sum(CREDITS_USED_CLOUD_SERVICES)
+        )from  table(information_schema.warehouse_metering_history(dateadd(month,-5,current_date))) group by warehouse_name having WAREHOUSE_NAME = :WAREHOUSE_NAME ;
+            return '50';
+            end if;
+        end;
+        end if;
+    end;
+    END FOR;
+    return 'no updated in warhouse cost limit';
+end;
+
+
+--create alert for any new to identify and make mail notifications---------------------------------------------
+CREATE or replace ALERT Event_log_to_Email_Notifications
+  WAREHOUSE = OPERATING_CHECK
+  SCHEDULE = '1 MINUTE'
+  IF (EXISTS (
+    SELECT * FROM event_log WHERE event_time BETWEEN 
+            IFNULL(SNOWFLAKE.ALERT.LAST_SUCCESSFUL_SCHEDULED_TIME(),
+            '2023-10-01'::TIMESTAMP_NTZ) AND SNOWFLAKE.ALERT.SCHEDULED_TIME()
+    ))
+  THEN
+    BEGIN
+     declare 
+     eventlog_row resultset default (SELECT event_object,event_type FROM event_log WHERE event_time BETWEEN 
+            IFNULL(SNOWFLAKE.ALERT.LAST_SUCCESSFUL_SCHEDULED_TIME(),
+            '2023-10-01'::TIMESTAMP_NTZ) AND SNOWFLAKE.ALERT.SCHEDULED_TIME()
+    );
+        cursor_EVENTLOG cursor for eventlog_row;
+        evnt_type varchar;
+        event_object varchar;
+        join_string varchar();
+        v_message_body VARCHAR := '<html>
+<head>
+    <style>
+        .caution{
+            color:#FF8F00;
+            display:inline;
+        }
+         .message{
+             
+             border:black 1px solid;
+             background-color:#FFCC80;
+             padding:3px;
+         }
+        hr {
+            border: 1px solid red; 
+            margin: 20px 0; 
+        }
+    </style>
+</head>
+<body>
+    <h1>{variable1}</h1>
+    <hr>
+    <p><b><br><br>Dear Customer</b>,<br><br><br>
+    We need to inform you that our warehouse costs have gone beyond the set limit. Below are the details:</p>
+    <p>{variable2}</p> <br><br>
+    <div class="message">
+    <p class="caution">CAUTION:</p>
+    <p style="display:inline">Please contact our admin team if you have any questions or doubts.</p>
+    </div>
+</body>
+</html>';
+        final_message VARCHAR;
+        begin 
+            FOR row_variable IN cursor_EVENTLOG  DO
+                set evnt_type:=row_variable.event_type ;
+                set event_object:=row_variable.event_object;
+                 -- Replace the {VARIABLE} placeholder with your dynamic content
+    final_message := REPLACE(:v_message_body, '{variable1}',:evnt_type);
+     final_message := REPLACE(:final_message, '{variable2}',:event_object);
+                join_string := 'Dear Customer,'||'\n\n'||'We need to inform you that our warehouse costs have gone beyond the set limit. Below are the details:'||'\n\n'||:event_object;
+                CALL SYSTEM$SEND_EMAIL('email_notification_integration','saravanapandi.c@elait.com',:evnt_type,:final_message,'text/html');
+            END FOR;
+        end;
+    END;
+
+
+---procedure
+create or replace procedure warehouse_threshold_limitReached_checking()
+RETURNS varchar
+LANGUAGE SQL
+EXECUTE AS caller
+as
+ declare
+    warehouse_details resultset default (select WAREHOUSE_NAME,sum(CREDITS_USED) as total_credit,sum(CREDITS_USED_COMPUTE),sum(CREDITS_USED_CLOUD_SERVICES) from table(information_schema.warehouse_metering_history(dateadd(month,-5,current_date))) group by warehouse_name having WAREHOUSE_NAME <> 'OPERATING_CHECK' );           --get warhosue details from metedata(snowflake-account)
+     cursor_warehouse_details cursor for warehouse_details;
+     WAREHOUSE_NAME varchar;
+     CREDITS_USED varchar;
+     join_details varchar;
+begin    
+    FOR row_variable IN cursor_warehouse_details DO     --cursor for snowflake warhouse details
+    begin
+            WAREHOUSE_NAME:=row_variable.WAREHOUSE_NAME;
+            CREDITS_USED:=to_varchar(row_variable.TOTAL_CREDIT);
+            join_details :='WAREHOUSE NAME: '||:WAREHOUSE_NAME||'\n'||','||'TOTAl credit used: '||:CREDITS_USED  ||' TIME:'||current_timestamp(1);
+        if(row_variable.TOTAL_CREDIT >33 and row_variable.TOTAL_CREDIT <70)then  --if condition will triggers if cost reach 50$
+        begin
+            --message should send one time only if reached one level for first time  
+            if(not exists(select 1 from WAREHOUSE_LIMITED_CHECK.THRESHOLD_LIMITREACHED_CHECKING.EVENT_LOG where WAREHOUSE_NAME= :WAREHOUSE_NAME  ))then  --checking if 50$ reached already and it should not send message
+        insert into WAREHOUSE_LIMITED_CHECK.THRESHOLD_LIMITREACHED_CHECKING.EVENT_LOG(event_type,event_details,event_time,WAREHOUSE_NAME,event_message)
+        select 
+        'Warehouse Costs',
+        'warehouse costs is exceeding  $100', 
+        current_timestamp,
+        :WAREHOUSE_NAME,
+        object_construct(
+        'WAREHOUSE NAME',warehouse_name,
+        'Total credit',sum(CREDITS_USED),
+        'Total credit on compute',SUM(CREDITS_USED_COMPUTE),
+        'Total credit on cloud service',sum(CREDITS_USED_CLOUD_SERVICES)
+        )from  table(information_schema.warehouse_metering_history(dateadd(month,-5,current_date))) group by warehouse_name having WAREHOUSE_NAME = :WAREHOUSE_NAME ;
+            return '50';
+            end if;
+        end;
+        end if;
+    end;
+    END FOR;
+    return 'a';
+end;
