@@ -1,0 +1,235 @@
+/*"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+ 
+AUTHOR             : Saravana pandi 
+ 
+DESCRIPTION        : sending email from event log table 
+ 
+date               : 22-10-2023
+ 
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+*/
+CREATE OR REPLACE PROCEDURE Eventlog_to_Email_Notifications()
+RETURNS VARCHAR(16777216) null
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+declare
+    warehouse_details resultset default (select * from event_log where EVENT_TYPE ='Warehouse Costs Exceeding');--warehouse  cost
+    long_running_query resultset default (select * from event_log where event_type='LONG RUNNING QUERIES');--long running querys
+    failed_query resultset default (select * from event_log where event_type='Failed queries'); --failed query 
+    modification_records resultset default (select * from event_log where event_type='Modification of records');
+    Inactive_User resultset default (select * from event_log where event_type='INACTIVE USER DETECTED');
+    --inactive user records data
+    new_ip resultset default (select * from event_log where event_type='NEW IP DETECTED');
+    cursor_warehouse cursor for warehouse_details;
+    cursor_failedquery cursor for failed_query;
+    modification cursor for modification_records;
+    cursor_inactive cursor for Inactive_User;
+    cursor_ipDetected cursor for new_ip;
+    cursor_long_running cursor for long_running_query;
+    NOTIFICATION_EMAIL VARCHAR;
+    NOTIFICATION_INTEGRATION VARCHAR;
+    NOTIFICATION_SUBJECT VARCHAR;
+    NOTIFICATION_MESSAGE VARCHAR;
+    Main_Notification varchar;
+    first_Email_Notification varchar;
+    table_details varchar;
+    heading varchar;
+    content varchar;
+    integration varchar;
+    email varchar;
+    event_type varchar;
+    begin 
+    first_Email_Notification:=('<html>
+    <head>
+    <style>
+        .caution{
+            color:#FF8F00;
+            display:inline;
+        }
+         .message{
+             
+             border:black 1px solid;
+             background-color:#FFCC80;
+             padding:3px;
+         }
+        hr {
+            border: 1px solid #D2ECEB;
+            background-color: #D2ECEB;
+            height: 2px;
+            margin: 20px 0;
+        }
+         table {
+            border: #D2ECEB;
+        }
+        </style>
+    </head>
+    <body>
+        <h1>{heading1}</h1>
+        <hr>
+        <p><b><br><br>Hi Team!</b>,<br><br><br>
+    {content}</p>
+    {table_details} 
+    </TABLE>
+    <br><br>
+    <div class="message">
+    <p class="caution">CAUTION:</p>
+    <p style="display:inline">Please contact our admin team if you have any questions or doubts.</p>
+    </div>
+</body>
+</html>');
+        --warehouse cost alert sending condition---------------------------------------------------------------------
+        if(exists(select * from event_log where EVENT_TYPE ='Warehouse Costs Exceeding'))then
+        begin
+        table_details:=(' <TABLE border="2" cellpadding = "10">
+                              <TR>
+                              <TH>EVENT ID</TH>
+                              <TH>EVENT TIME</TH>
+                              <TH>EVENT MESSAGE</TH>
+                              <TH>EVENT DETAILS</TH>
+                              </TR>');
+        FOR row_variable IN cursor_warehouse  DO
+        table_details := :table_details||'<TR><TD>'||row_variable.EVENT_ID||'</TD><TD>'||row_variable.EVENT_TIMESTAMP||'</TD><TD>'||row_variable.EVENT_MESSAGE||'</TD><TD>'||row_variable.EVENT_DETAILS||'</TD></TR>';
+        event_type := row_variable.EVENT_TYPE;
+        end for;
+         Select NOTIFICATION_INTEGRATION, RECIPIENTS_EMAIL into :integration,:email from ALERTS_DB.ALERTS_SCHEMA.ALERT_RECIPIENTS                  where event_type = :event_type;
+        content :=('We need to inform you that our warehouse costs have gone beyond the set limit. Below are the details:');
+        heading :=('warehouse costs is exceeding  $100');
+        Main_Notification :=REPLACE(:first_Email_Notification, '{table_details}',:table_details);
+        Main_Notification :=REPLACE(:Main_Notification, '{content}',:content);
+        Main_Notification :=REPLACE(:Main_Notification, '{heading1}',:heading);
+        CALL SYSTEM$SEND_EMAIL(:integration,:email,'warehouse cost exceeding 100$',:Main_Notification,'text/html'); 
+        end;
+        end if;
+        --failed queries alert sending condition------------------------------------------------------------------------
+         if(exists(select * from event_log where event_type='Failed queries'))then
+        begin
+        table_details:=(' <TABLE border="2" cellpadding = "10">
+                              <TR>
+                              <TH>EVENT ID</TH>
+                              <TH>EVENT TIME</TH>
+                              <TH>EVENT MESSAGE</TH>
+                              <TH>EVENT DETAILS</TH>
+                              </TR>');
+        FOR row_variable IN cursor_failedquery  DO
+        table_details := :table_details||'<TR><TD>'||row_variable.EVENT_ID||'</TD><TD>'||row_variable.EVENT_TIMESTAMP||'</TD><TD>'||row_variable.EVENT_MESSAGE||'</TD><TD>'||row_variable.EVENT_DETAILS||'</TD></TR>';
+        event_type := row_variable.EVENT_TYPE;
+        end for;
+        Select NOTIFICATION_INTEGRATION, RECIPIENTS_EMAIL into :integration,:email from ALERTS_DB.ALERTS_SCHEMA.ALERT_RECIPIENTS                  where event_type = :event_type ;
+        heading:=('Failed queries');
+        content :=('The table below gives the details of failed queries :');
+        Main_Notification :=REPLACE(:first_Email_Notification, '{table_details}',:table_details);
+         Main_Notification :=REPLACE(:Main_Notification, '{content}',:content);
+        Main_Notification :=REPLACE(:Main_Notification, '{heading1}',:heading);
+        CALL SYSTEM$SEND_EMAIL(:integration,:email,'failed queries',:Main_Notification,'text/html'); 
+        end;
+        end if;
+
+        --modification records alert sending condition------------------------------------------------------------
+         if(exists(select * from event_log where event_type='Modification of records'))then
+        begin
+        table_details:=(' <TABLE border="2" cellpadding = "10">
+                              <TR>
+                              <TH>EVENT ID</TH>
+                              <TH>EVENT TIME</TH>
+                              <TH>EVENT MESSAGE</TH>
+                              <TH>EVENT DETAILS</TH>
+                              </TR>');
+        FOR row_variable IN modification  DO
+        table_details := :table_details||'<TR><TD>'||row_variable.EVENT_ID||'</TD><TD>'||row_variable.EVENT_TIMESTAMP||'</TD><TD>'||row_variable.EVENT_MESSAGE||'</TD><TD>'||row_variable.EVENT_DETAILS||'</TD></TR>';
+        event_type := row_variable.EVENT_TYPE;
+        end for;
+          Select NOTIFICATION_INTEGRATION, RECIPIENTS_EMAIL into :integration,:email from ALERTS_DB.ALERTS_SCHEMA.ALERT_RECIPIENTS                  where event_type = :event_type ;
+        heading:=('Modification of records detected ');
+        content :=('The table below gives the details of modified record/records:');
+        Main_Notification :=REPLACE(:first_Email_Notification, '{table_details}',:table_details);
+        Main_Notification :=REPLACE(:Main_Notification, '{content}',:content);
+        Main_Notification :=REPLACE(:Main_Notification, '{heading1}',:heading);
+        CALL SYSTEM$SEND_EMAIL(:integration,:email,'Modification of records',:Main_Notification,'text/html'); 
+        end;
+        end if;
+        --Inactive_User_Detected------------------------------------------------------------------------------------------
+         if(exists(select * from event_log where event_type='INACTIVE USER DETECTED'))then
+        begin
+        table_details:=(' <TABLE border="2" cellpadding = "10">
+                              <TR>
+                              <TH>EVENT ID</TH>
+                              <TH>EVENT TIME</TH>
+                              <TH>EVENT MESSAGE</TH>
+                              <TH>EVENT DETAILS</TH>
+                              </TR>');
+        FOR row_variable IN cursor_inactive  DO
+        table_details := :table_details||'<TR><TD>'||row_variable.EVENT_ID||'</TD><TD>'||row_variable.EVENT_TIMESTAMP||'</TD><TD>'||row_variable.EVENT_MESSAGE||'</TD><TD>'||row_variable.EVENT_DETAILS||'</TD></TR>';
+         event_type := row_variable.EVENT_TYPE;
+        end for;
+        Select NOTIFICATION_INTEGRATION, RECIPIENTS_EMAIL into :integration,:email from ALERTS_DB.ALERTS_SCHEMA.ALERT_RECIPIENTS                  where event_type = :event_type ;
+        heading:=('Inactive User Detected');
+        content :=('The following users are found Inactive. Signing in again would make the user active.');
+        Main_Notification :=REPLACE(:first_Email_Notification, '{table_details}',:table_details);
+        Main_Notification :=REPLACE(:Main_Notification, '{content}',:content);
+        Main_Notification :=REPLACE(:Main_Notification, '{heading1}',:heading);
+        CALL SYSTEM$SEND_EMAIL(:integration,:email ,'Inactive_User_Detected',:Main_Notification,'text/html'); 
+        end;
+        end if;
+        --NEW IP DETECTED  condition------------------------------------------------------------------------
+         if(exists(select * from event_log where event_type='NEW IP DETECTED'))then
+        begin
+        table_details:=(' <TABLE border="2" cellpadding = "10">
+                              <TR>
+                              <TH>EVENT ID</TH>
+                              <TH>EVENT TIME</TH>
+                              <TH>EVENT MESSAGE</TH>
+                              <TH>EVENT DETAILS</TH>
+                              </TR>');
+        FOR row_variable IN cursor_ipDetected  DO
+        table_details := :table_details||'<TR><TD>'||row_variable.EVENT_ID||'</TD><TD>'||row_variable.EVENT_TIMESTAMP||'</TD><TD>'||row_variable.EVENT_MESSAGE||'</TD><TD>'||row_variable.EVENT_DETAILS||'</TD></TR>';
+        event_type := row_variable.EVENT_TYPE;
+      end for;
+          Select NOTIFICATION_INTEGRATION, RECIPIENTS_EMAIL into :integration,:email from ALERTS_DB.ALERTS_SCHEMA.ALERT_RECIPIENTS                  where event_type = :event_type ;
+         heading:=('NEW IP DETECTED');
+        content :=('The IP addresses for the following users was modified and the network policy was updated successfully. The expired IP addresses of the users are mentioned below. ');
+        Main_Notification :=REPLACE(:first_Email_Notification, '{table_details}',:table_details);
+        Main_Notification :=REPLACE(:Main_Notification, '{content}',:content);
+        Main_Notification :=REPLACE(:Main_Notification, '{heading1}',:heading);
+        CALL SYSTEM$SEND_EMAIL(:integration,:email ,'NEW IP DETECTED ',:Main_Notification,'text/html'); 
+        end;
+       
+        end if;
+        -- long_running_query  condition------------------------------------------------------------------------
+         if(exists(select * from event_log where event_type='LONG RUNNING QUERIES'))then
+        begin
+        table_details:=(' <TABLE border="2" cellpadding = "10">
+                              <TR>
+                              <TH>EVENT ID</TH>
+                              <TH>EVENT TIME</TH>
+                              <TH>EVENT MESSAGE</TH>
+                              <TH>EVENT DETAILS</TH>
+                              </TR>');
+        FOR row_variable IN cursor_long_running  DO
+        table_details := :table_details||'<TR><TD>'||row_variable.EVENT_ID||'</TD><TD>'||row_variable.EVENT_TIMESTAMP||'</TD><TD>'||row_variable.EVENT_MESSAGE||'</TD><TD>'||row_variable.EVENT_DETAILS||'</TD></TR>';
+        event_type := row_variable.EVENT_TYPE;
+        end for;
+         Select NOTIFICATION_INTEGRATION, RECIPIENTS_EMAIL into :integration,:email from ALERTS_DB.ALERTS_SCHEMA.ALERT_RECIPIENTS                  where event_type = :event_type ;
+        heading:=('Long Running Queries detected');
+        content :=('Long running queries(execution time exceeding 2 minutes) details are enclosed in the below mentioned table. Kindly look at it and act accordingly to save the warehouse computational cost.');
+        
+        Main_Notification :=REPLACE(:first_Email_Notification, '{table_details}',:table_details);
+        Main_Notification :=REPLACE(:Main_Notification, '{content}',:content);
+        Main_Notification :=REPLACE(:Main_Notification, '{heading1}',:heading);
+        CALL SYSTEM$SEND_EMAIL(:integration,:email,'Long Running Queries detected',:Main_Notification,'text/html'); 
+        end;
+        
+        end if;
+         return 'successfully running';
+        
+        end;
+
+call Eventlog_to_Email_Notifications();
+        
+
+
+select * from alerts_db.alerts_schema.event_log;
+select * from ALERTS_DB.ALERTS_SCHEMA.ALERT_RECIPIENTS;
+
+select $5:User_Name from event_log;
+  
